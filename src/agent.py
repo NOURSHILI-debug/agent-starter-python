@@ -99,7 +99,32 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
-@server.rtc_session(agent_name="my-agent")
+async def on_session_end(ctx: JobContext) -> None:
+    # Agent Observability: tag the session so you can find and analyze it in LiveKit Cloud.
+    # Tags and outcomes appear on the session's Insights timeline.
+    # Tags: https://docs.livekit.io/deploy/observability/tags/
+    # Production evals (LLM-as-judge): https://docs.livekit.io/deploy/observability/evals/
+    try:
+        report = ctx.make_session_report()
+    except RuntimeError:
+        # The session never started (for example, the job failed during setup),
+        # so there's nothing to tag.
+        return
+
+    # Mark whether the user actually engaged in a conversation.
+    chat = report.chat_history.copy(
+        exclude_function_call=True, exclude_instructions=True
+    )
+    if len(chat.items) >= 3:
+        ctx.tagger.success()
+    else:
+        ctx.tagger.fail(reason="No meaningful conversation")
+
+    # You can also add your own custom tags with optional metadata, for example:
+    # ctx.tagger.add("turns", metadata={"count": len(chat.items)})
+
+
+@server.rtc_session(agent_name="my-agent", on_session_end=on_session_end)
 async def my_agent(ctx: JobContext):
     # Logging setup
     # Add any other context you want in all log entries here
